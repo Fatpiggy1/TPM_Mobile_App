@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TPM Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+h1 { margin-bottom: 10px; }
+table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+th { background-color: #f2f2f2; }
+form { margin-bottom: 20px; }
+input, select, button { margin: 5px 0; padding: 5px; }
+</style>
+</head>
+<body>
+
+<h1>TPM Dashboard</h1>
+
+<h2>Machines</h2>
+<table id="machinesTable">
+<tr><th>ID</th><th>Name</th><th>Location</th><th>Type</th><th>Status</th></tr>
+</table>
+
+<h3>Add Machine</h3>
+<form id="addMachineForm">
+<input type="text" id="machineName" placeholder="Name" required>
+<input type="text" id="machineLocation" placeholder="Location">
+<input type="text" id="machineType" placeholder="Machine Type">
+<button type="submit">Add Machine</button>
+</form>
+
+<h2>Work Orders</h2>
+<table id="workOrdersTable">
+<tr><th>ID</th><th>Asset</th><th>Type</th><th>Status</th><th>Notes</th><th>Action</th></tr>
+</table>
+
+<h3>Add Work Order</h3>
+<form id="addWorkOrderForm">
+<select id="workOrderAsset" required></select>
+<select id="workOrderType">
+  <option value="preventive">Preventive</option>
+  <option value="corrective">Corrective</option>
+</select>
+<input type="text" id="workOrderNotes" placeholder="Notes">
+<button type="submit">Add Work Order</button>
+</form>
+
+<h2>Graphs</h2>
+<canvas id="workOrderChart" width="400" height="200"></canvas>
+
+<script>
+// Fetch and render machines
+async function loadMachines() {
+    const res = await fetch('/assets');
+    const machines = await res.json();
+    const table = document.getElementById('machinesTable');
+    const assetSelect = document.getElementById('workOrderAsset');
+    table.innerHTML = '<tr><th>ID</th><th>Name</th><th>Location</th><th>Type</th><th>Status</th></tr>';
+    assetSelect.innerHTML = '';
+    machines.forEach(m => {
+        const row = table.insertRow();
+        row.insertCell(0).innerText = m.id;
+        row.insertCell(1).innerText = m.name;
+        row.insertCell(2).innerText = m.location || '';
+        row.insertCell(3).innerText = m.machine_type || '';
+        row.insertCell(4).innerText = m.status;
+        const option = document.createElement('option');
+        option.value = m.id;
+        option.text = m.name;
+        assetSelect.add(option);
+    });
+}
+
+// Fetch and render work orders
+async function loadWorkOrders() {
+    const res = await fetch('/workorders');
+    const workOrders = await res.json();
+    const table = document.getElementById('workOrdersTable');
+    table.innerHTML = '<tr><th>ID</th><th>Asset</th><th>Type</th><th>Status</th><th>Notes</th><th>Action</th></tr>';
+    let statusCounts = {open: 0, completed: 0};
+    workOrders.forEach(wo => {
+        const row = table.insertRow();
+        row.insertCell(0).innerText = wo.id;
+        row.insertCell(1).innerText = wo.asset;
+        row.insertCell(2).innerText = wo.type;
+        row.insertCell(3).innerText = wo.status;
+        row.insertCell(4).innerText = wo.notes || '';
+
+        // Count status for chart
+        if (wo.status in statusCounts) statusCounts[wo.status]++;
+
+        // Add Edit button
+        const editCell = row.insertCell(5);
+        const btn = document.createElement('button');
+        btn.innerText = 'Edit';
+        btn.onclick = () => editWorkOrder(wo);
+        editCell.appendChild(btn);
+    });
+    renderChart(statusCounts);
+}
+
+// Add machine
+document.getElementById('addMachineForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = {
+        name: document.getElementById('machineName').value,
+        location: document.getElementById('machineLocation').value,
+        machine_type: document.getElementById('machineType').value
+    };
+    await fetch('/assets', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    document.getElementById('addMachineForm').reset();
+    loadMachines();
+});
+
+// Add work order
+document.getElementById('addWorkOrderForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = {
+        asset_id: parseInt(document.getElementById('workOrderAsset').value),
+        type: document.getElementById('workOrderType').value,
+        notes: document.getElementById('workOrderNotes').value
+    };
+    await fetch('/workorders', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    document.getElementById('addWorkOrderForm').reset();
+    loadWorkOrders();
+});
+
+// Edit work order
+function editWorkOrder(wo) {
+    const newType = prompt("Type (preventive/corrective):", wo.type);
+    const newStatus = prompt("Status (open/completed):", wo.status);
+    const newNotes = prompt("Notes:", wo.notes || "");
+    fetch(`/workorders/${wo.id}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            type: newType,
+            status: newStatus,
+            notes: newNotes
+        })
+    }).then(() => {
+        loadWorkOrders();
+    });
+}
+
+// Render pie chart
+let chartInstance = null;
+function renderChart(statusCounts) {
+    const ctx = document.getElementById('workOrderChart').getContext('2d');
+    const data = {
+        labels: Object.keys(statusCounts),
+        datasets: [{
+            label: 'Work Orders',
+            data: Object.values(statusCounts),
+            backgroundColor: ['#36A2EB','#FF6384']
+        }]
+    };
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(ctx, { type: 'pie', data: data });
+}
+
+// Initial load
+loadMachines();
+loadWorkOrders();
+</script>
+
+</body>
+</html>
